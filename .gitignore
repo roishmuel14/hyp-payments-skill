@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Generated when the template tests run (scripts/sync-shared.mjs copies base44/shared into each function)
+templates/base44/functions/*/_shared/
+
+# Local tooling
+node_modules/
+deno.lock
+*.log
+
+# Never commit secrets
+.env
+.env.*

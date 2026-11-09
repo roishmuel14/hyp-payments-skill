@@ -1,0 +1,134 @@
+{
+  "name": "BillingAccount",
+  "type": "object",
+  "description": "The HYP card token and the subscription state of one customer. Written and read only by server functions (base44/shared/billing.ts, subscription.ts): the token, its expiry and the ID number never leave the server, not even to the admin's browser.",
+  "properties": {
+    "customer_id": {
+      "type": "string",
+      "title": "Customer ID",
+      "description": "Who pays (customer.ts decides: a User id by default)"
+    },
+    "owner_user_id": {
+      "type": "string",
+      "title": "Owner User ID",
+      "description": "The customer's User, copied by the server"
+    },
+    "token": {
+      "type": "string",
+      "title": "Card Token",
+      "description": "HYP card token (19 digits, the last 4 are the card's). Server only."
+    },
+    "tokef": {
+      "type": "string",
+      "title": "Card Expiry",
+      "description": "Card expiry as getToken returns it, YYMM. Server only."
+    },
+    "card_last4": {
+      "type": "string",
+      "title": "Card Last 4"
+    },
+    "card_brand": {
+      "type": "string",
+      "title": "Card Brand",
+      "description": "As HYP reports it, kept only when it is a name (HYP can send a number)"
+    },
+    "card_id_number": {
+      "type": "string",
+      "title": "Cardholder ID",
+      "description": "The cardholder's Israeli ID, kept only when the terminal asks for one. Sent with every token charge. Server only."
+    },
+    "card_trans_id": {
+      "type": "string",
+      "title": "Card Check Transaction",
+      "description": "The HYP transaction Id of the card check that produced the token"
+    },
+    "card_saved_at": {
+      "type": "string",
+      "title": "Card Saved At",
+      "format": "date-time"
+    },
+    "session_id": {
+      "type": "string",
+      "title": "Card Session",
+      "description": "One-time id of the open card page (sent to HYP as Order). Set by createCardSession, cleared by confirmCard."
+    },
+    "session_expires_at": {
+      "type": "string",
+      "title": "Card Session Expires At",
+      "format": "date-time"
+    },
+    "confirmed_session_id": {
+      "type": "string",
+      "title": "Confirmed Card Session",
+      "description": "The card session confirmed last, so reloading the return page answers again instead of failing"
+    },
+    "charge_lock": {
+      "type": "string",
+      "title": "Charge Lock",
+      "description": "Random id of the run doing a money action on this customer right now (claimed with updateMany), so two never run at once"
+    },
+    "charge_lock_at": {
+      "type": "string",
+      "title": "Charge Lock At",
+      "format": "date-time"
+    },
+    "subscription_status": {
+      "type": "string",
+      "title": "Subscription Status",
+      "description": "none: no subscription. trial: free trial. active: paid. past_due: the charge failed, retries and grace days running. expired: unpaid after the grace days (hidden). cancelled: ended at the end of a paid period.",
+      "enum": ["none", "trial", "active", "past_due", "expired", "cancelled"]
+    },
+    "trial_ends_at": {
+      "type": "string",
+      "title": "Trial Ends At",
+      "description": "Last Israel day of the free trial (YYYY-MM-DD). The first charge is the day after.",
+      "format": "date"
+    },
+    "next_charge_on": {
+      "type": "string",
+      "title": "Next Charge On",
+      "description": "Israel day (YYYY-MM-DD) the daily run next acts on this account: a charge, a retry or the expiry",
+      "format": "date"
+    },
+    "paid_through": {
+      "type": "string",
+      "title": "Paid Through",
+      "description": "Last Israel day covered by a successful charge (YYYY-MM-DD)",
+      "format": "date"
+    },
+    "next_period_start": {
+      "type": "string",
+      "title": "Next Period Start",
+      "description": "First Israel day of the next period to charge (the day after the trial or the paid period)",
+      "format": "date"
+    },
+    "due_since": {
+      "type": "string",
+      "title": "Due Since",
+      "description": "First Israel day the current unpaid period was due; retries and grace days count from it",
+      "format": "date"
+    },
+    "failed_attempts": {
+      "type": "number",
+      "title": "Failed Attempts",
+      "description": "Failed charges in a row for the current period"
+    },
+    "cancel_at_period_end": {
+      "type": "boolean",
+      "title": "Cancel At Period End",
+      "description": "The customer cancelled: no more charges, the subscription ends when the paid period does"
+    },
+    "last_notice": {
+      "type": "string",
+      "title": "Last Notice",
+      "description": "Key of the last reminder sent (for example trial-7:2026-12-01), claimed with updateMany so it goes once"
+    }
+  },
+  "required": ["customer_id"],
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

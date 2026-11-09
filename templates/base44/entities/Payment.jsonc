@@ -1,0 +1,195 @@
+{
+  "name": "Payment",
+  "type": "object",
+  "description": "One HYP transaction: a one-time payment page, an admin's test charge, or one attempt to charge a subscription period, and what was cancelled or refunded of it. Created and updated only by server functions; claimed with updateMany before HYP is called (or before a verified page is closed), so nothing is charged, closed, cancelled or refunded twice.",
+  "properties": {
+    "customer_id": {
+      "type": "string",
+      "title": "Customer ID",
+      "description": "Who paid (customer.ts), or guest:<email> for an anonymous one-time buyer"
+    },
+    "owner_user_id": {
+      "type": "string",
+      "title": "Owner User ID",
+      "description": "The customer's User, so they can read their own payments. The literal guest for an anonymous buyer, never empty"
+    },
+    "kind": {
+      "type": "string",
+      "title": "Kind",
+      "enum": ["one_time", "test", "subscription"]
+    },
+    "description": {
+      "type": "string",
+      "title": "Description",
+      "description": "What was paid for, as the customer and the admin see it"
+    },
+    "order_id": {
+      "type": "string",
+      "title": "Order ID",
+      "description": "One-time payments: the one-time id sent to HYP as Order (32 hex)"
+    },
+    "page_expires_at": {
+      "type": "string",
+      "title": "Page Expires At",
+      "format": "date-time"
+    },
+    "buyer_name": { "type": "string", "title": "Buyer Name" },
+    "buyer_email": { "type": "string", "title": "Buyer Email" },
+    "buyer_phone": { "type": "string", "title": "Buyer Phone" },
+    "paid_amount": {
+      "type": "number",
+      "title": "Paid Amount",
+      "description": "One-time payments: the Amount in HYP's verified redirect (ILS)"
+    },
+    "installments": {
+      "type": "number",
+      "title": "Installments",
+      "description": "Payments in HYP's redirect (1 = a single payment)"
+    },
+    "card_last4": { "type": "string", "title": "Card Last 4" },
+    "last_ccode": {
+      "type": "string",
+      "title": "Last Declined CCode",
+      "description": "One-time payments: the code of the last declined try on the page (the page stays open)"
+    },
+    "fulfilled_at": {
+      "type": "string",
+      "title": "Fulfilled At",
+      "description": "When products.ts fulfill ran (claimed with updateMany; given back if it failed). No default on purpose.",
+      "format": "date-time"
+    },
+    "attempt": {
+      "type": "number",
+      "title": "Attempt",
+      "description": "Subscriptions: which try for this period (1, 2, 3)"
+    },
+    "period_start": {
+      "type": "string",
+      "title": "Period Start",
+      "description": "First Israel day this charge pays for (subscriptions only)",
+      "format": "date"
+    },
+    "period_end": {
+      "type": "string",
+      "title": "Period End",
+      "description": "Last Israel day this charge pays for (subscriptions only)",
+      "format": "date"
+    },
+    "amount": {
+      "type": "number",
+      "title": "Amount",
+      "description": "ILS, including VAT: the sum sent to HYP"
+    },
+    "status": {
+      "type": "string",
+      "title": "Status",
+      "description": "awaiting_payment: a one-time payment page is open. pending: a token charge was created, not sent. processing: claimed and sent to HYP (never retried automatically: check the HYP portal). succeeded / failed: HYP's answer. cancelling / refunding: a cancel or refund was claimed and sent to HYP with no answer yet (unknown, never retried automatically: check the HYP portal). cancelled: HYP cancelled the whole charge before transmitting it. refunded / partially_refunded: HYP refunded all or part of it.",
+      "enum": ["awaiting_payment", "pending", "processing", "succeeded", "failed", "cancelling", "cancelled", "refunding", "refunded", "partially_refunded"]
+    },
+    "claim_id": {
+      "type": "string",
+      "title": "Claim ID",
+      "description": "Random id of the run that claimed this charge; every later write matches it"
+    },
+    "claimed_at": {
+      "type": "string",
+      "title": "Claimed At",
+      "format": "date-time"
+    },
+    "charged_at": {
+      "type": "string",
+      "title": "Charged At",
+      "description": "When HYP answered",
+      "format": "date-time"
+    },
+    "hyp_trans_id": {
+      "type": "string",
+      "title": "HYP Transaction ID"
+    },
+    "ccode": {
+      "type": "string",
+      "title": "HYP CCode",
+      "description": "HYP status code: 0 is approved"
+    },
+    "acode": {
+      "type": "string",
+      "title": "Approval Code"
+    },
+    "invoice": {
+      "type": "string",
+      "title": "Invoice",
+      "description": "Hesh from HYP's answer (the invoice number, when one was issued)"
+    },
+    "error_code": {
+      "type": "string",
+      "title": "Error Code",
+      "description": "Our reason code: why a charge failed (card_declined, hyp_unreachable...), or amount_mismatch on a one-time payment"
+    },
+    "created_by": {
+      "type": "string",
+      "title": "Created By",
+      "description": "The admin's user id for a test charge, or cron for the daily run"
+    },
+    "refunded_amount": {
+      "type": "number",
+      "title": "Refunded Amount",
+      "description": "ILS given back so far: the whole amount after a cancel, or the sum of the approved refunds. No default on purpose: the claim matches a missing value as null."
+    },
+    "refunds": {
+      "type": "array",
+      "title": "Cancels and Refunds",
+      "description": "Every cancel or refund attempt, oldest first (pending: sent, no answer yet; approved; declined)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["cancel", "refund"] },
+          "amount": { "type": "number", "description": "ILS" },
+          "status": { "type": "string", "enum": ["pending", "approved", "declined"] },
+          "ccode": { "type": "string", "description": "HYP's CCode (920 on a cancel: already transmitted)" },
+          "reversal": { "type": "string", "description": "A cancel's ReversalStatus from HYP (the docs show 777; the production terminal answered 125), kept for reference" },
+          "error_code": { "type": "string", "description": "Our reason code when it was not approved" },
+          "trans_id": { "type": "string", "description": "The refund's own HYP transaction Id (a cancel echoes the charge's)" },
+          "acode": { "type": "string" },
+          "invoice": { "type": "string" },
+          "requested_at": { "type": "string", "format": "date-time" },
+          "answered_at": { "type": "string", "format": "date-time" },
+          "by": { "type": "string", "description": "The admin's user id" },
+          "note": { "type": "string", "description": "The admin's short reason" }
+        }
+      }
+    },
+    "cancelled_at": {
+      "type": "string",
+      "title": "Cancelled At",
+      "format": "date-time"
+    },
+    "refunded_at": {
+      "type": "string",
+      "title": "Refunded At",
+      "description": "When HYP approved the latest refund",
+      "format": "date-time"
+    },
+    "refund_claim_id": {
+      "type": "string",
+      "title": "Refund Claim ID",
+      "description": "Random id of the run that claimed the latest cancel or refund; its later writes match it"
+    },
+    "refund_claimed_at": {
+      "type": "string",
+      "title": "Refund Claimed At",
+      "format": "date-time"
+    }
+  },
+  "required": ["customer_id", "amount"],
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": {
+      "$or": [
+        { "data.owner_user_id": "{{user.id}}" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}
