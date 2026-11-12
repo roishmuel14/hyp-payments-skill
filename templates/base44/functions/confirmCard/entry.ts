@@ -3,7 +3,7 @@ import { currentUser, fail, israelToday, readBody, serverError, unauthorized } f
 import { findOwnCustomer } from './_shared/customer.ts';
 import { CARD_CHECK_OK, HypError, getToken, hypConfig, parseQuery, pick, reasonFor, verifyRedirect } from './_shared/hyp.ts';
 import { brandName, cardSummary, findBillingAccount, getBillingSettings } from './_shared/billing.ts';
-import { billAccount, retryWithNewCard } from './_shared/subscription.ts';
+import { billAccount, billingMode, mayBill, retryWithNewCard } from './_shared/subscription.ts';
 
 const MAX_QUERY = 4000;
 // createCardSession's session ids ('k' + 31 hex). Checked before any query: an empty value in a
@@ -112,11 +112,13 @@ Deno.serve(async (req) => {
     if (ccode === '0') console.warn('confirmCard: the card check came back as an approved charge: cancel it in the HYP portal', customer.id, `Id=${transId}`);
     if (ccode === '600') console.warn('confirmCard: the card was saved without a card company check (J2 answer to a J5 request)', customer.id, `Id=${transId}`);
 
-    // A customer who was behind on payments is charged now with the new card, not at the next run.
+    // A customer who was behind on payments is charged now with the new card, not at the next run,
+    // when the billing mode covers them (BILLING_MODE; off: the card is only saved).
     let charge = '';
-    if (await retryWithNewCard(base44, saved, today)) {
+    const mode = billingMode();
+    if (mayBill(mode, customer.id) && await retryWithNewCard(base44, saved, today)) {
       try {
-        charge = await billAccount(base44, saved.id, today, await getBillingSettings(base44), cfg);
+        charge = await billAccount(base44, saved.id, today, await getBillingSettings(base44), cfg, mode);
       } catch (error) {
         console.error('confirmCard: the charge with the new card failed to run', customer.id, (error as Error).message);
         charge = 'unknown';

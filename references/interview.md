@@ -24,6 +24,11 @@ after each say what the answer changes in the build.
   extension, and no documented notification to us for each charge, so our records and our emails
   cannot follow it. HK fits a fixed subscription that starts paying today, with nothing to sync: then
   it is less code (no token, no daily run), and stopping is `HKStatus`.
+- A live subscription project (11/2026) stayed with the token charge and did not ask HYP about a
+  standing order. `HK=True` would break the trial the admin sets and extends, a price change, and our
+  feedback on each charge; HYP's other standing-order product (Hyp Enterprise, formerly CreditGuard) is
+  a different interface opened through HYP's sales, so a new integration, not a switch. Reopen it only
+  if HYP or a card company demands it.
 
 **3. (מנוי) ניסיון חינם, ומתי לוקחים כרטיס?**
 - **כרטיס חובה כבר בהרשמה, נבדק ב-J5, חיוב ראשון בסוף הניסיון** (ברירת מחדל)
@@ -33,6 +38,17 @@ after each say what the answer changes in the build.
   Trial extension by an admin: yes by default (it moves the first charge).
 - The card check is J5: a 1 ILS authorization the card company really checks (CVV, credit, ID where
   the issuer supports it) and releases by itself after about 5 days. Never J2 (it checks nothing).
+- With a free trial, ask also: **לממש את כללי Visa לניסיון חינם?** Default: **no** (a live
+  subscription project decided not to build them in 11/2026; it had the cancel on the site and the
+  7-day reminder only for a customer with no card). Visa's rules for free trials and introductory
+  offers `[DOC: Visa, announced 06/2019, in force since 18/04/2020, worldwide]`: express consent at
+  enrollment; a confirmation (email) after it with the terms and a way to cancel; a reminder at least
+  7 days before the first charge (and before a price change), with a link to cancel online; a receipt
+  with the trial's details; the first charge identified as coming from a trial; and simple online
+  cancellation. Estimated at half a day of work. Say yes when the acquirer or HYP asks, or the volume
+  makes chargebacks a real risk. Read the current rules before building: [Visa's flier](https://usa.visa.com/content/dam/VCOM/global/support-legal/documents/visa-new-subscription-rules-flier.pdf)
+  and the Visa Core Rules (summaries disagree on whether the 7 days count to the first charge or to
+  the trial's end). Not legal advice.
 
 **4. ביטול וזיכוי: מתוך המערכת או ידנית בפורטל של HYP?**
 - **מתוך המערכת, רק אדמין** (ברירת מחדל): ביטול באותו יום עד 22:00 (בלי עמלה), זיכוי מלא או חלקי

@@ -1,7 +1,8 @@
 # HYP templates: what to copy, what to adapt
 
 Generalized from two live integrations on production terminals: a monthly subscription with
-merchant-managed tokens (card check, token charge and cancel ran live in 10/2026 and 11/2026), and a
+merchant-managed tokens (card check, token charge and cancel ran live in 10/2026 and 11/2026; the
+daily run in test mode on the production terminal, then live, in 11/2026), and a
 one-time checkout with installments, coupons and HYP invoices (live with real buyers). The layout
 mirrors a Base44 hybrid app (hand-written frontend plus Deno backend functions), so the tree copies
 into the project root as is. On another stack, keep `hyp.ts` and the rules, and replace the records
@@ -15,18 +16,18 @@ layer (see SKILL.md, "בלי Base44").
 | `base44/shared/billing.ts` | all | records: account lock, `chargePayment` and `reversePayment` claims, card summary, settings |
 | `base44/shared/customer.ts` | all | **adapt**: who pays (default: the User), names and email for HYP, notification and status hooks |
 | `base44/shared/products.ts` | one-time | **adapt**: the server-side price, coupons, and `fulfill` (what a paid order unlocks) |
-| `base44/shared/subscription.ts` | subscription | the daily run's logic for one account, trial and cancel helpers. `[DESIGN]`: tested against the fakes only |
+| `base44/shared/subscription.ts` | subscription | the billing mode (`BILLING_MODE` off/test/live, `BILLING_TEST_CUSTOMERS`), the daily run's logic for one account, trial and cancel helpers. The engine it was generalized from (same rules) ran live; this generalized copy: fakes only |
 | `base44/shared/common.ts` | all | Israel day, the 422 contract, the signed-in user. Keep the project's own if it has one |
 | `base44/functions/createCardSession`, `confirmCard` | subscription | the J5 card check and the token (`confirmCard` also charges a past_due account at once with the new card) |
 | `base44/functions/getMyBilling` | subscription, one-time | the customer's own card, status and payments |
 | `base44/functions/adminCharge` | subscription | the admin's card summary and test charge |
 | `base44/functions/adminRefundPayment` | refunds | cancel (same day) or refund (all or part), admin only |
 | `base44/functions/createPayment`, `confirmPayment` | one-time | the payment page and its idempotent close; open to anonymous buyers |
-| `base44/functions/runBilling` + `base44/workflows/Daily billing.jsonc` | subscription | the daily run and its schedule (create the Workflow through the Apps API) |
+| `base44/functions/runBilling` + `base44/workflows/Daily billing.jsonc` | subscription | the daily run and its schedule (create the Workflow through the Apps API); off = a plan only, an admin's `{ dry_run: true }` = a plan in any mode |
 | `base44/entities/BillingAccount.jsonc`, `Payment.jsonc` | all | admin-only RLS; Payment readable by its owner |
 | `src/pages/BillingReturn.jsx` | all | the one return page for both flows (route it at the URL set on the terminal) |
 | `src/components/billing/*.jsx`, `src/lib/billing*.js` | all | card line, payment list, admin panel, refund dialog, texts (he, en) |
-| `tests/` | all | fake HYP (stubbed `fetch`), fake SDK (import map), `Deno.serve` captured per function, 15 tests; `break-checks.sh` |
+| `tests/` | all | fake HYP (stubbed `fetch`), fake SDK (import map), `Deno.serve` captured per function, 16 tests; `break-checks.sh` |
 | `scripts/sync-shared.mjs` | all | copies `base44/shared/*` into each function's `_shared/` |
 
 Drop what the project does not use (a one-time shop needs no `subscription.ts`, `runBilling`,
@@ -35,7 +36,7 @@ Drop what the project does not use (a one-time shop needs no `subscription.ts`, 
 ## Adapt, in this order
 
 1. `customer.ts`: `findOwnCustomer`, `getCustomer` (who pays and their HYP name and email), `notify`
-   (the project's email or WhatsApp channel), `onSubscriptionChange` (for example hide an expired
+   (the project's email or WhatsApp channel, one language per message), `onSubscriptionChange` (for example hide an expired
    customer from the public site). Then rename "customer" in the admin texts only if the project has
    a better word.
 2. `products.ts` (one-time): `quote` reads the real price, re-validates coupons on the server, and
@@ -60,8 +61,8 @@ project root after copying), with Node and Deno installed:
 node scripts/sync-shared.mjs && deno test --no-config --node-modules-dir=none --import-map=tests/import_map.json --allow-env --allow-read=. tests/
 ```
 
-Expected on the untouched templates: `15 passed (54 steps)`. Then `bash tests/break-checks.sh`:
-all 10 lines must say `caught` (it needs `python3`). When a project already has a
+Expected on the untouched templates: `16 passed (59 steps)`. Then `bash tests/break-checks.sh`:
+all 14 lines must say `caught` (it needs `python3`). When a project already has a
 `tests/import_map.json` or `tests/fake-sdk.ts`, merge (the SDK version in the import map must match
 the functions' import).
 
@@ -70,3 +71,5 @@ the functions' import).
 `node scripts/sync-shared.mjs --check`, `base44 entities push` (a full sync: compare
 `base44/entities/` across every local copy of the repo first), `base44 functions deploy <each>`, push
 the frontend, Publish, then probe the published copy. The secrets are set by a human, one line each.
+A subscription ships with `BILLING_MODE` unset (off): nothing is charged until someone sets `test` or
+`live` on purpose (references/subscriptions.md section 8).

@@ -48,3 +48,7 @@ check "a charge sent again to the second host" base44/shared/hyp.ts "  const { p
 check "a single-payment page without Tash" base44/shared/hyp.ts "  } else if (!input.recurring) {
     params.push(['Tash', '1'], ['FixTash', 'True']);
   }" "  }"
+check "billing that ignores BILLING_MODE" base44/shared/subscription.ts "  if (!mayBill(mode, account.customer_id)) return 'off';" ""
+check "a test-mode charge at the full price" base44/shared/subscription.ts "amount: mode.mode === 'test' ? TEST_CHARGE_AMOUNT : settings.monthly_price," "amount: settings.monthly_price,"
+check "a card-expiring email on the charge day itself" base44/shared/subscription.ts "if (left >= 1 && left <= 7) await remindOnce" "if (left >= 0 && left <= 7) await remindOnce"
+check "an anonymous dry_run obeyed (a real run skipped)" base44/functions/runBilling/entry.ts "const body = admin ? await readBody(req) : {};" "const body = await readBody(req);"
