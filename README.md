@@ -17,7 +17,7 @@
 | `references/architecture.md` | הזרימות, מודל הנתונים, ותביעות (claims) ונעילות שמונעות חיוב כפול |
 | `references/subscriptions.md` | מנוי חודשי: הריצה היומית, ניסיונות חוזרים, ימי חסד, או הוראת קבע של HYP |
 | `references/testing-and-go-live.md` | סולם הבדיקות: בדיקות אוטומטיות, מסכים, פריסה, כסף אמיתי, בדיקת דליפה |
-| `templates/` | קוד מוכן ל-Base44: ישויות, פונקציות Deno, עמוד חזרה, פאנל אדמין, Workflow יומי, ו-15 בדיקות מול HYP מדומה |
+| `templates/` | קוד מוכן ל-Base44: ישויות, פונקציות Deno, עמוד חזרה, פאנל אדמין, Workflow יומי, ו-16 בדיקות מול HYP מדומה |
 
 ## למי זה מתאים
 
@@ -67,7 +67,7 @@ Claude טוען את הסקיל לבד כשמדברים על HYP, סליקה, ד
 node scripts/sync-shared.mjs && deno test --no-config --node-modules-dir=none --import-map=tests/import_map.json --allow-env --allow-read=. tests/
 ```
 
-התוצאה הצפויה: 15 בדיקות עוברות (54 צעדים). אחר כך `bash tests/break-checks.sh` שובר כל פעם כלל כסף
+התוצאה הצפויה: 16 בדיקות עוברות (59 צעדים). אחר כך `bash tests/break-checks.sh` שובר כל פעם כלל כסף
 אחד ומוודא שהבדיקות תופסות אותו (צריך גם `python3`).
 
 ## מודל הבטיחות
@@ -81,6 +81,9 @@ node scripts/sync-shared.mjs && deno test --no-config --node-modules-dir=none --
   ו-`KEY`) לא נכתבות ללוג.
 - **"לא ידוע" זה לא "נכשל".** כשאין תשובה מ-HYP, ייתכן שהכרטיס חויב: המערכת לא מנסה שוב לבד, ואדם
   בודק בפורטל.
+- **החיוב החודשי כבוי עד שמדליקים אותו.** הסוד `BILLING_MODE` לא מוגדר = כבוי (הריצה היומית רק
+  מתכננת); `test` מחייב רק לקוחות בדיקה 1 ₪; `live` מחייב את כולם, רק ביום ההשקה ואחרי מחיקת נתוני
+  הבדיקה.
 
 ## הבהרה
 
@@ -112,12 +115,13 @@ its docs.
   example: "Connect my app to HYP Pay with a one-time payment page and up to 3 installments", "Add a
   monthly subscription with a 30-day free trial", "VERIFY fails on a payment the customer says went
   through". The skill starts with a short interview before any code is written.
-- **Tests:** from `templates/`, run the `deno test` command above: 15 tests (54 steps) against a fake
+- **Tests:** from `templates/`, run the `deno test` command above: 16 tests (59 steps) against a fake
   HYP and a fake Base44 SDK, plus `tests/break-checks.sh`.
 - **Safety model:** only a human presses real-money actions; Claude only reads the results. Secrets
   never go through the chat: set them with `npx base44 secrets set NAME='...' --app-id <your-app-id>`
   (or your platform's secret store). Card tokens and ID numbers stay on the server. A charge without
-  an answer is "unknown" and is never retried automatically.
+  an answer is "unknown" and is never retried automatically. Automatic monthly billing is off until a
+  `BILLING_MODE` secret turns it on (`test`: test customers at 1 ILS; `live`: everyone).
 - **Disclaimer:** not affiliated with, endorsed by or connected to HYP. Verify everything against
   [HYP's official documentation](https://developers.hyp.co.il/pay) and on your own terminal before
   taking real money. Not legal, tax or accounting advice. No warranty.

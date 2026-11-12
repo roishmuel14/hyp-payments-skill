@@ -1,10 +1,13 @@
 // The monthly subscription with merchant-managed tokens: what the daily run (runBilling) does with
 // one BillingAccount, and the small helpers a project's own actions call (start or extend a trial,
 // cancel at the end of the paid period).
-// [DESIGN] Tested against the fakes only (11/2026): the first project that runs it live records
-// what HYP and the platform really did.
+// [DESIGN] The engine it was generalized from (same rules) ran on a production terminal in test
+// mode in 11/2026 (1 ILS charges, each cancelled the same day) and was then switched to live. This
+// generalized copy is tested against the fakes only.
 //
 // Money rules, all enforced here:
+// - Nothing is charged, written or emailed unless the BILLING_MODE secret says so (off by default;
+//   test = only the listed customers, 1 ILS; live = everyone at the full price).
 // - One money action per customer at a time (the account lock), and every decision on a fresh read
 //   under the lock.
 // - At most one paid charge per period: a period that already has a paid row only moves the dates.
@@ -24,9 +27,33 @@ const TRIAL_REMINDERS = [7, 1];
 // The line in HYP's transaction list and on the invoice. Put the app's name first.
 const CHARGE_INFO = 'מנוי חודשי';
 
-export type BillResult = 'not_due' | 'charged' | 'declined' | 'unknown' | 'expired' | 'cancelled' | 'locked' | 'skipped';
+export type BillResult = 'not_due' | 'charged' | 'declined' | 'unknown' | 'expired' | 'cancelled' | 'locked' | 'skipped' | 'off';
 
-const BILLABLE = ['trial', 'active', 'past_due'];
+export const BILLABLE = ['trial', 'active', 'past_due'];
+
+// ---------- The billing mode ----------
+
+export type BillingMode = { mode: 'off' | 'test' | 'live'; testCustomers: string[] };
+
+// BILLING_MODE (off | test | live; anything else is off) and BILLING_TEST_CUSTOMERS (customer ids,
+// comma separated), both secrets, never the request. off: the daily run only counts what is due.
+// test: only the listed customers, every charge TEST_CHARGE_AMOUNT (cancel each one the same day).
+// live: everyone, the full price. Keep it off through the build, run the live checks in test, and
+// switch to live on launch day, after the test data is deleted.
+export function billingMode(): BillingMode {
+  const raw = (Deno.env.get('BILLING_MODE') || '').trim().toLowerCase();
+  const testCustomers = (Deno.env.get('BILLING_TEST_CUSTOMERS') || '')
+    .split(/[\s,]+/)
+    .filter((id) => /^[A-Za-z0-9_-]{1,64}$/.test(id));
+  return { mode: raw === 'live' || raw === 'test' ? raw : 'off', testCustomers };
+}
+
+// Whether billing may write, charge or email for this customer in this mode.
+export function mayBill(mode: BillingMode, customerId: string): boolean {
+  return mode.mode === 'live' || (mode.mode === 'test' && mode.testCustomers.includes(customerId));
+}
+
+export const TEST_CHARGE_AMOUNT = 1;
 
 // Whole days from `from` to `to` (both YYYY-MM-DD).
 export function daysBetween(from: string, to: string): number {
@@ -58,13 +85,15 @@ async function setStatus(base44: any, account: any, set: Record<string, unknown>
   }
 }
 
-// One account, on `today` (the Israel day). Safe to call any number of times a day.
+// One account, on `today` (the Israel day). Safe to call any number of times a day. Does nothing
+// at all ('off') for a customer the mode does not cover.
 // deno-lint-ignore no-explicit-any
-export async function billAccount(base44: any, accountId: string, today: string, settings: BillingSettings, cfg: HypConfig): Promise<BillResult> {
+export async function billAccount(base44: any, accountId: string, today: string, settings: BillingSettings, cfg: HypConfig, mode: BillingMode): Promise<BillResult> {
   const BillingAccount = base44.asServiceRole.entities.BillingAccount;
   const Payment = base44.asServiceRole.entities.Payment;
   let account = await BillingAccount.get(accountId);
   if (!BILLABLE.includes(account?.subscription_status)) return 'skipped';
+  if (!mayBill(mode, account.customer_id)) return 'off';
 
   if (account.subscription_status === 'trial' && !account.token && account.trial_ends_at) {
     const left = daysBetween(today, account.trial_ends_at);
@@ -72,9 +101,11 @@ export async function billAccount(base44: any, accountId: string, today: string,
       await remindOnce(base44, account, `trial-${left}:${account.trial_ends_at}`, 'trial_ending_no_card', { trial_ends_at: account.trial_ends_at });
     }
   }
+  // In the 7 days before the charge, not on the day itself: that day's try fails without HYP, and
+  // its charge_failed notice already says the card expired (two emails otherwise; seen live, 11/2026).
   if (account.token && account.next_charge_on && !account.cancel_at_period_end && tokefExpired(account.tokef, account.next_charge_on)) {
     const left = daysBetween(today, account.next_charge_on);
-    if (left >= 0 && left <= 7) await remindOnce(base44, account, `card-expiring:${account.tokef}`, 'card_expiring', { next_charge_on: account.next_charge_on });
+    if (left >= 1 && left <= 7) await remindOnce(base44, account, `card-expiring:${account.tokef}`, 'card_expiring', { next_charge_on: account.next_charge_on });
   }
   if (!account.next_charge_on || account.next_charge_on > today) return 'not_due';
 
@@ -148,7 +179,7 @@ export async function billAccount(base44: any, accountId: string, today: string,
         owner_user_id: account.owner_user_id || customer!.owner_user_id || '',
         kind: 'subscription',
         description: CHARGE_INFO,
-        amount: settings.monthly_price,
+        amount: mode.mode === 'test' ? TEST_CHARGE_AMOUNT : settings.monthly_price,
         status: 'pending',
         period_start: start,
         period_end: end,

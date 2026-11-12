@@ -759,6 +759,7 @@ Deno.test('one-time payment: a fulfillment that fails is retried on the next rel
 
 Deno.test('subscription: trial, first charge once, retries 3 and 7, past_due, expired, new card, cancel', async (t) => {
   seed();
+  Deno.env.set('BILLING_MODE', 'live');
   setSecrets();
   const sub = await import('../base44/functions/runBilling/_shared/subscription.ts');
   const { getBillingSettings } = await import('../base44/functions/runBilling/_shared/billing.ts');
@@ -766,7 +767,8 @@ Deno.test('subscription: trial, first charge once, retries 3 and 7, past_due, ex
   // deno-lint-ignore no-explicit-any
   const base44 = (await import('./fake-sdk.ts')).createClientFromRequest(new Request('http://x/')) as any;
   const cfg = hypConfig()!;
-  const bill = async (customerId: string, today: string) => sub.billAccount(base44, account(customerId)!.id, today, await getBillingSettings(base44), cfg);
+  const LIVE = { mode: 'live' as const, testCustomers: [] };
+  const bill = async (customerId: string, today: string) => sub.billAccount(base44, account(customerId)!.id, today, await getBillingSettings(base44), cfg, LIVE);
   const periodRows = (customerId: string, start: string) => store.Payment.filter((p) => p.customer_id === customerId && p.period_start === start);
 
   // Customer A saves a card; customer B never does.
@@ -866,11 +868,82 @@ Deno.test('subscription: trial, first charge once, retries 3 and 7, past_due, ex
     assertEquals([account('userB')!.next_charge_on, account('userB')!.next_period_start], ['2027-03-01', '2027-03-01']);
     assertEquals(await bill('userB', '2026-12-01'), 'not_due');
   });
+
+  await t.step('a card that expires before the charge: one reminder in the 7 days before, none on the charge day', async () => {
+    // B: a card valid through 02/2027, the charge on 01/03/2027.
+    Object.assign(account('userB')!, { token: TOKEN, tokef: '2702', last_notice: null });
+    assertEquals(await bill('userB', '2027-02-21'), 'not_due');
+    assertEquals(account('userB')!.last_notice ?? null, null, '8 days before: no reminder yet');
+    assertEquals(await bill('userB', '2027-02-22'), 'not_due');
+    assertEquals(account('userB')!.last_notice, 'card-expiring:2702');
+    // A run that never saw the 7 days before (billing was off, or the card came late) sends no
+    // reminder on the charge day itself: that try fails and its own notice says the card expired.
+    Object.assign(account('userB')!, { last_notice: null });
+    const before = softCalls();
+    assertEquals(await bill('userB', '2027-03-01'), 'declined');
+    assertEquals([account('userB')!.last_notice ?? null, softCalls()], [null, before]);
+  });
+  Deno.env.delete('BILLING_MODE');
+});
+
+Deno.test('BILLING_MODE: off plans only, test bills only the listed customers at 1 ILS, an admin dry run never acts', async (t) => {
+  seed();
+  setSecrets();
+  const { israelToday, addDays } = await import('../base44/functions/runBilling/_shared/common.ts');
+  const today = israelToday();
+  // A and B both saved a card and are due today.
+  for (const user of [USER_A, USER_B]) {
+    await call('createCardSession', { lang: 'he' }, user);
+    await call('confirmCard', { rawQuery: redirect(account(user.id)!.session_id, { id: user.id === 'userA' ? '900000201' : '900000202' }) }, user);
+    Object.assign(account(user.id)!, { subscription_status: 'trial', trial_ends_at: addDays(today, -1), next_period_start: today, next_charge_on: today });
+  }
+  const payments = () => (store.Payment ?? []).filter((p) => p.kind === 'subscription');
+
+  await t.step('no BILLING_MODE (or an unknown value) is off: a plan only, even for the scheduled call', async () => {
+    Deno.env.delete('BILLING_MODE');
+    for (const value of [undefined, 'yes']) {
+      if (value) Deno.env.set('BILLING_MODE', value);
+      const r = await call('runBilling', {});
+      assertEquals([r.status, r.json.mode, r.json.dry_run, r.json.counts.due], [200, 'off', true, 2], r.text);
+      assertEquals(r.json.due, undefined, 'an anonymous caller gets counts only');
+    }
+    const admin = await call('runBilling', {}, ADMIN);
+    assertEquals(admin.json.due.map((d: { customer_id: string; amount: number }) => [d.customer_id, d.amount]), [['userA', 499], ['userB', 499]]);
+    assertEquals([softCalls(), payments().length, account('userA')!.next_charge_on], [0, 0, today]);
+  });
+
+  await t.step('test: only the listed customer is charged, 1 ILS; the other is not touched', async () => {
+    Deno.env.set('BILLING_MODE', 'test');
+    Deno.env.set('BILLING_TEST_CUSTOMERS', 'userB, not a valid id');
+    const r = await call('runBilling', { dry_run: true });
+    assertEquals([r.json.mode, r.json.dry_run, r.json.counts.charged], ['test', false, 1], 'an anonymous dry_run is ignored: a real run');
+    assertEquals(hyp.calls.filter((c) => c.action === 'soft').map((c) => c.Amount), ['1.00']);
+    assertEquals([account('userB')!.subscription_status, account('userA')!.subscription_status, account('userA')!.next_charge_on], ['active', 'trial', today]);
+    assertEquals(payments().map((p) => [p.customer_id, p.amount]), [['userB', 1]]);
+  });
+
+  await t.step('an admin dry run in live mode shows the plan and acts on nobody', async () => {
+    Deno.env.set('BILLING_MODE', 'live');
+    const before = softCalls();
+    const r = await call('runBilling', { dry_run: true }, ADMIN);
+    assertEquals([r.json.mode, r.json.dry_run, r.json.counts.due], ['live', true, 1], r.text);
+    assertEquals(r.json.due.map((d: { customer_id: string; amount: number }) => [d.customer_id, d.amount]), [['userA', 499]]);
+    assertEquals([softCalls(), account('userA')!.subscription_status], [before, 'trial']);
+  });
+
+  await t.step('live: the scheduled call charges the full price', async () => {
+    const r = await call('runBilling', {});
+    assertEquals([r.json.mode, r.json.dry_run, r.json.counts.charged], ['live', false, 1], r.text);
+    assertEquals(hyp.calls.filter((c) => c.action === 'soft').map((c) => c.Amount), ['1.00', '499.00']);
+  });
+  Deno.env.delete('BILLING_MODE');
+  Deno.env.delete('BILLING_TEST_CUSTOMERS');
 });
 
 Deno.test('runBilling reads nothing from the body, and a second run the same day charges nothing', async () => {
   seed();
   setSecrets();
+  Deno.env.set('BILLING_MODE', 'live');
   const { israelToday, addDays } = await import('../base44/functions/runBilling/_shared/common.ts');
   const today = israelToday();
   await call('createCardSession', { lang: 'he' }, USER_A);
@@ -881,6 +954,7 @@ Deno.test('runBilling reads nothing from the body, and a second run the same day
   const second = await call('runBilling', {});
   assertEquals(second.json.counts.not_due, 1);
   assertEquals(hyp.calls.filter((c) => c.action === 'soft').map((c) => c.Amount), ['499.00']);
+  Deno.env.delete('BILLING_MODE');
 });
 
 // ---------- Two hosts ----------

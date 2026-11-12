@@ -106,7 +106,7 @@ in the first message: a permission found missing during a real-money test costs 
 |---|---|---|
 | Tokens (`getToken`) | `getToken` answers `901` | subscriptions, saved cards |
 | J5 (authorization without a charge) | the page answers `322` (no J5 permission from the acquirer) | card check at sign-up |
-| **No CVV requirement on token charges (`soft` with `Token=True`)** | every automatic charge fails with `CCode 6` | subscriptions, any token charge. Blocked one subscription project for about two weeks, until HYP changed the terminal |
+| **No CVV requirement on token charges (`soft` with `Token=True`)** | every automatic charge fails with `CCode 6` | subscriptions, any token charge. Blocked one subscription project for about two weeks, until HYP changed the terminal. [LIVE] Side effect seen 11/2026 on that terminal: after the change the J5 card-check page stopped sending CVV and ID too, so a wrong CVV is saved with 700 (portal: "בדיקת CVV: לא הוכנס", "בדיקת ת.ז: לא הוכנס", "אופי עסקה: טלפונית"). If the card check must still verify CVV, get that confirmed in writing, or use two terminals with `tOwner` |
 | Installments up to N | the page cannot offer them (`903` = more than the terminal allows) | one-time payments with installments |
 | HK recurring module | `HK=True` pages do nothing useful | HYP-managed subscriptions only |
 | Refunds through the API (`zikoyAPI`) | `901` (only if HYP requires it; the docs list no permission) | refunds inside the system |
@@ -130,7 +130,8 @@ The user sends it themselves (sending is theirs). Remove the lines the project d
 1. הרשאת טוקנים (getToken).
 2. עסקאות J5 (שריון בלי חיוב), לבדיקת כרטיס בהרשמה.
 3. לבטל את חובת ה-CVV בעסקאות טוקן (soft) במסוף הזה, ולהשאיר אותה בדף התשלום: החיוב החודשי רץ בלי
-   שהלקוח מקליד CVV. אם אי אפשר: מסוף נוסף לחיובים בלי CVV, באותו מספר עוסק, כדי לחייב עם tOwner.
+   שהלקוח מקליד CVV. אשמח לאישור שאחרי השינוי דף התשלום (גם בעסקת J5) עדיין שולח את ה-CVV ואת תעודת
+   הזהות לבדיקה של חברת האשראי. אם אי אפשר: מסוף נוסף לחיובים בלי CVV, באותו מספר עוסק, כדי לחייב עם tOwner.
 4. תשלומים עד <מספר> בדף התשלום.
 5. זיכוי דרך ה-API (zikoyAPI) על עסקאות שכבר שודרו.
 ועוד שאלה: האם תעודת זהות היא שדה חובה במסוף הזה, ואפשר להפוך אותה לרשות?
@@ -159,6 +160,19 @@ npx base44 secrets set HYP_KEY='<מפתח ה-API מ"אימות">' --app-id <your
 At most one short line noting that the values land in the shell history (clear those lines on a
 shared machine). On another stack, use its own secret store; the names stay the same. The names
 drifted between apps before (one app called the key `HYP_API_KEY`): keep `HYP_KEY` in new projects.
+
+A subscription adds two more (references/subscriptions.md section 8). They are not secret values, but
+they decide whether real cards are charged: leave `BILLING_MODE` unset during the build (off), and
+change it only on the business owner's explicit go for that mode (`test` for the live checks, `off`
+after them, `live` at launch):
+
+```bash
+npx base44 secrets set BILLING_TEST_CUSTOMERS='<מזהי לקוחות הבדיקה, מופרדים בפסיק>' --app-id <your-app-id>
+```
+
+```bash
+npx base44 secrets set BILLING_MODE='test' --app-id <your-app-id>
+```
 
 After setting them: a **new** secret name reached Base44's draft copy at once but the published copy
 (what the live app runs) only after a Publish, in one measurement; another time it arrived within a

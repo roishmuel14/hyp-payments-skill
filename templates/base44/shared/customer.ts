@@ -58,7 +58,9 @@ function fromUser(user: any): Customer {
 // Tells the customer about their subscription. `kind`: trial_ending_no_card, card_expiring,
 // charge_failed, expired, cancelled. Default: a log line only. Wire it to the project's channel
 // (Base44 SendEmail reaches only the app's registered users; WhatsApp goes through an in-app agent),
-// with the text in Hebrew and English, and copy the admin on charge_failed and expired.
+// and copy the admin on charge_failed and expired. One language per message, subject and body (and
+// the admin's copy too): the customer's chosen language, Hebrew by default; never both languages in
+// one email.
 // deno-lint-ignore no-explicit-any
 export async function notify(_base44: any, customer: Customer | null, kind: string, data: Record<string, unknown>): Promise<void> {
   await Promise.resolve();

@@ -9,7 +9,7 @@ Two ways to bill monthly with HYP. The interview (question 2) picks one per proj
 | Amount per cycle | anything (price changes, discounts) | fixed (`TashFirstPayment` can differ once) |
 | Our records and emails per charge | yes, synchronous `CCode` | no documented notification per charge |
 | Code | card check, token, daily run, retries | one page + `HKStatus` to stop |
-| Status | built and tested against fakes; the card check, token charge and cancel ran live, the daily run not yet | `[DOC]` only |
+| Status | the card check, token charge and cancel ran live; the engine the templates came from ran on a production terminal in test mode, then live (11/2026); the generalized template: fakes only | `[DOC]` only |
 
 A subscription project chose tokens (10/2026) for a trial whose length the admin sets and extends,
 and for its own notifications. HK fits a plain fixed subscription that starts paying on sign-up.
@@ -22,7 +22,8 @@ and for its own notifications. HK fits a plain fixed subscription that starts pa
 4. Customer and admin actions
 5. What the customer and the public site see
 6. HYP-managed recurring (HK)
-7. Open points to settle on the first live run
+7. What the first live runs settled, and what is still open
+8. The billing mode (`BILLING_MODE`)
 
 ## 1. Merchant-managed: the lifecycle
 
@@ -43,14 +44,18 @@ at sign-up, or any time before the trial ends.
 ## 2. The daily run, rule by rule
 
 `runBilling` runs once a day from the Workflow "Daily billing" (09:00 Israel time). It pages through
-accounts in `trial`, `active` and `past_due` and calls `billAccount(base44, id, today, settings, cfg)`
-one account at a time; an error on one account is logged and the run goes on.
+accounts in `trial`, `active` and `past_due` and calls `billAccount(base44, id, today, settings, cfg,
+mode)` one account at a time; an error on one account is logged and the run goes on. In `off` mode, or
+on an admin's `{ dry_run: true }`, it calls nothing and only answers the plan (section 8).
 
 For one account (`subscription.ts`):
 
+0. A customer the billing mode does not cover: nothing at all (`off`: no write, no charge, no email).
 1. Reminders before anything else: a trial without a card gets `trial_ending_no_card` 7 days and 1
    day before its last day; a card whose `Tokef` ends before the next charge gets `card_expiring` in
-   the last 7 days. Each reminder goes once: its key is claimed on `last_notice` with `updateMany`.
+   the 7 days before it, not on the charge day itself (that day's try fails without calling HYP and its
+   `charge_failed` notice already says the card expired: two emails otherwise, seen live in 11/2026).
+   Each reminder goes once: its key is claimed on `last_notice` with `updateMany`.
 2. Not due (`next_charge_on` after today): done.
 3. Take the account lock; re-read; decide on the fresh read.
 4. `cancel_at_period_end`: status `cancelled`, no charge.
@@ -81,7 +86,9 @@ For one account (`subscription.ts`):
 Why the run is safe to repeat (a second Workflow run, a manual POST): every charge happens under the
 account lock, after a fresh read, only for a due period without a paid or unknown row, and only after
 the row claim. The tests prove "run twice the same day = one charge" and "two runs at once = one
-charge".
+charge". Safe to repeat is not safe to probe: in `test` and `live` any call is a real run, an anonymous
+POST included (it does what is due today, once). To look without acting, an admin sends
+`{ dry_run: true }`; an anonymous `dry_run` is ignored.
 
 ## 3. Dates
 
@@ -90,7 +97,8 @@ charge".
 - `trial_ends_at` = the trial's last day; the first charge is the day after.
 - The Workflow's cron is written in the Workflow's own timezone field (`Asia/Jerusalem`, `0 9 * * *`).
   Confirm the first real run's time in the Workflow's runs list (and `base44 logs --env preview`):
-  Workflows do not run under `base44 dev`.
+  Workflows do not run under `base44 dev`. `[LIVE: 11/2026]` it ran at 09:00 Israel time (07:00 UTC),
+  and its log line showed in `base44 logs --env preview`.
 
 ## 4. Customer and admin actions
 
@@ -106,6 +114,7 @@ action needs):
 | A free month | move `paid_through`, `next_period_start`, `next_charge_on` forward a month (not written as a helper) | admin |
 | Retry now | `billAccount` with today after setting `next_charge_on` to today | admin |
 | A test charge | `adminCharge` | admin (a human, real money) |
+| See today's plan, confirm the mode | `runBilling` with `{ dry_run: true }`: mode, counts, who is due and for how much; nothing done | admin |
 
 A cancel or refund of a subscription payment does not move `paid_through` back: that is the admin's
 decision (for example a refund plus a cancel of the subscription).
@@ -113,9 +122,11 @@ decision (for example a refund plus a cancel of the subscription).
 ## 5. What the customer and the public site see
 
 - `getMyBilling`: status, trial end, price, the card summary, next charge, paid through, payments.
-- Notices (`customer.ts notify`): trial ending without a card (7 days, 1 day), card expiring, charge
-  failed (with the next try), expired, cancelled. Hebrew and English; copy the admin on failures.
-  Base44 `SendEmail` reaches only the app's registered users; WhatsApp goes through an in-app agent.
+- Notices (`customer.ts notify`): trial ending without a card (7 days, 1 day), card expiring (the 7
+  days before the charge), charge failed (with the next try), expired, cancelled; copy the admin on
+  failures. **One language per message**, subject and body, the admin's copy and the sender's name
+  included: the customer's chosen language, Hebrew by default, never both in one email. Base44
+  `SendEmail` reaches only the app's registered users; WhatsApp goes through an in-app agent.
 - Public visibility (`onSubscriptionChange`): for example, a directory keeps a listing visible in
   `trial`, `active` and `past_due`, and hides `expired` and `cancelled` (never deletes).
 
@@ -134,15 +145,51 @@ All `[DOC]` (references/protocol.md section 11):
    that was checked.
 5. Tests: VERIFY of the first redirect as in flow A; there is no token and no daily run.
 
-## 7. Open points to settle on the first live run
+## 7. What the first live runs settled, and what is still open
 
-Record the answers in the project's plan and in this skill (SKILL.md, "עדכון הסקיל"):
+A live subscription project ran the engine these templates were generalized from on its production
+terminal in `test` mode (11/2026), with 1 ILS charges for test customers only, dates moved by hand, and
+every charge cancelled the same day (both seen cancelled in the HYP portal) `[LIVE]`:
 
-- The first real monthly charge on a production terminal through `runBilling`.
-- The Workflow's real run time and invoker (`base44 logs --env preview` and the runs list).
+- The 09:00 Workflow run charged the due test customer once; a second run charged nothing.
+- A card whose `Tokef` had passed: the run counted a failed try without calling HYP (`past_due`, an
+  email), and after the last try the customer became `expired` and left the public listing. A new
+  card was then charged at once and brought the customer back. (What HYP itself answers to an expired
+  token was not tested: the run never sends it.)
+- A trial extended by 3 months moved the next charge by 3 months.
+- A cancel kept the customer active and listed until the paid period ended, then `cancelled`, no
+  charge.
+- Then `BILLING_MODE` went back to `off`: the next scheduled run logged `mode: off` and acted on
+  nobody. At launch it went to `live` (section 8 and references/testing-and-go-live.md section 8).
+
+Still open (record the answers in the project's plan and in this skill, SKILL.md "עדכון הסקיל"):
+
+- The first full-price monthly charge through `runBilling`.
 - Whether HYP's duplicate-prevention setting ("מניעת עסקאות כפולות") interferes with a retry of the
   same amount on the same card.
-- A token charge on a card whose `Tokef` passed: expect a decline; the run counts it as a failed try
-  without calling HYP.
 - What HYP Invoice issues for a cancel and a refund when the module is on (the docs say a document
   for every transaction, refunds and cancellations included).
+
+## 8. The billing mode (`BILLING_MODE`)
+
+Every automatic charge (the daily run, and the charge `confirmCard` makes at once for a customer who is
+behind) asks the mode first. Two secrets, never the request (`subscription.ts billingMode`):
+
+| `BILLING_MODE` | What happens |
+|---|---|
+| unset, `off`, or anything else | the daily run only plans: counts, and for an admin who is due and for how much as `live` would do it. Nothing is written, charged or emailed. A new card is saved and not charged |
+| `test` | only the customers listed in `BILLING_TEST_CUSTOMERS` (ids, comma separated); every charge 1 ILS (`TEST_CHARGE_AMOUNT`); everyone else is not touched at all |
+| `live` | everyone, the full price |
+
+The life of the switch (as run live, 11/2026):
+
+1. `off` through the whole build: the Workflow can exist and run every day without risk.
+2. `test` for the checks on the real terminal: only test customers, 1 ILS, dates moved by hand to make
+   them due, each charge cancelled the same day (before HYP's nightly transmission). Then back to `off`.
+3. `live` on launch day only, on the business owner's explicit go, after every test customer and
+   their rows are deleted. Confirm with an admin's `{ dry_run: true }`: it answers `mode: live` and the
+   plan.
+
+In `test` and `live` any call to `runBilling` is a real run, an anonymous POST included. The Workflow
+calls as the admin who created it, without `dry_run`, so its runs are real too. Probe the route only
+while the mode is `off`, or as an admin with `dry_run`.
